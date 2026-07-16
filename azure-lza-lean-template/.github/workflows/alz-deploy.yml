@@ -1,0 +1,95 @@
+name: ALZ Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'plan-only | apply | plan-and-apply'
+        type: choice
+        options: [plan-only, apply, plan-and-apply]
+        default: plan-and-apply
+        required: true
+
+# CRITICAL: id-token: write must be here — secrets: inherit does not propagate
+permissions:
+  id-token: write
+  contents: read
+  pull-requests: write
+  actions: read
+
+jobs:
+  shared-03-management:
+    uses: ./.github/workflows/layer-03-management.yml
+    with:
+      action: ${{ inputs.action }}
+    secrets: inherit
+
+  shared-04-hub:
+    needs: shared-03-management
+    uses: ./.github/workflows/layer-04-hub.yml
+    with:
+      action: ${{ inputs.action }}
+    secrets: inherit
+
+  dev-01-mg:
+    needs: shared-04-hub
+    uses: ./.github/workflows/layer-01-mg.yml
+    with:
+      action: ${{ inputs.action }}
+      env: dev
+    secrets: inherit
+
+  dev-02-policy:
+    needs: dev-01-mg
+    uses: ./.github/workflows/layer-02-policy.yml
+    with:
+      action: ${{ inputs.action }}
+      env: dev
+    secrets: inherit
+
+  dev-05-workload:
+    needs: dev-02-policy
+    uses: ./.github/workflows/layer-05-workload.yml
+    with:
+      action: ${{ inputs.action }}
+      env: dev
+    secrets: inherit
+
+  shared-05-avnm:
+    needs: dev-05-workload
+    uses: ./.github/workflows/layer-05-avnm.yml
+    with:
+      action: ${{ inputs.action }}
+    secrets: inherit
+
+  # ── Prod jobs — uncomment when prod workload is ready ────────
+  # prod-01-mg:
+  #   needs: shared-05-avnm
+  #   uses: ./.github/workflows/layer-01-mg.yml
+  #   with:
+  #     action: ${{ inputs.action }}
+  #     env: prod
+  #   secrets: inherit
+
+  # prod-02-policy:
+  #   needs: prod-01-mg
+  #   uses: ./.github/workflows/layer-02-policy.yml
+  #   with:
+  #     action: ${{ inputs.action }}
+  #     env: prod
+  #   secrets: inherit
+
+  # prod-05-workload:
+  #   needs: prod-02-policy
+  #   uses: ./.github/workflows/layer-05-workload.yml
+  #   with:
+  #     action: ${{ inputs.action }}
+  #     env: prod
+  #   secrets: inherit
+
+  # shared-05-avnm-final:
+  #   needs: prod-05-workload
+  #   uses: ./.github/workflows/layer-05-avnm.yml
+  #   with:
+  #     action: ${{ inputs.action }}
+  #   secrets: inherit

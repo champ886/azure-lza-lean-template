@@ -1,0 +1,96 @@
+name: Layer - 04 Hub (shared)
+
+on:
+  workflow_call:
+    inputs:
+      action:
+        description: 'plan-only | apply | plan-and-apply | destroy'
+        required: true
+        type: string
+    secrets:
+      AZURE_CLIENT_ID:
+        required: true
+      AZURE_TENANT_ID:
+        required: true
+      AZURE_SUBSCRIPTION_ID:
+        required: true
+  workflow_dispatch:
+    inputs:
+      action:
+        type: choice
+        options: [plan-only, apply, plan-and-apply, destroy]
+        default: plan-and-apply
+        required: true
+
+permissions:
+  id-token: write
+  contents: read
+  pull-requests: write
+
+jobs:
+  terraform:
+    name: ${{ inputs.action }} / shared / 04-hub
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: environments/shared/04-hub
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/login@v2
+        with:
+          client-id:       ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id:       ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: '~1.7'
+
+      - name: Terraform Init
+        run: terraform init -reconfigure
+        env:
+          ARM_USE_OIDC: true
+          ARM_CLIENT_ID:       ${{ secrets.AZURE_CLIENT_ID }}
+          ARM_TENANT_ID:       ${{ secrets.AZURE_TENANT_ID }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Terraform Plan
+        if: inputs.action == 'plan-only' || inputs.action == 'plan-and-apply' || inputs.action == 'apply'
+        run: terraform plan -out=tfplan -no-color 2>&1 | tee plan.txt
+        env:
+          ARM_USE_OIDC: true
+          ARM_CLIENT_ID:       ${{ secrets.AZURE_CLIENT_ID }}
+          ARM_TENANT_ID:       ${{ secrets.AZURE_TENANT_ID }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Upload Plan Artifact
+        if: inputs.action == 'plan-only'
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfplan-shared-04-hub
+          path: environments/shared/04-hub/tfplan
+          retention-days: 1
+
+      - name: Download Plan Artifact
+        if: inputs.action == 'apply'
+        uses: actions/download-artifact@v4
+        with:
+          name: tfplan-shared-04-hub
+          path: environments/shared/04-hub
+
+      - name: Terraform Apply
+        if: inputs.action == 'plan-and-apply' || inputs.action == 'apply'
+        run: terraform apply -auto-approve tfplan
+        env:
+          ARM_USE_OIDC: true
+          ARM_CLIENT_ID:       ${{ secrets.AZURE_CLIENT_ID }}
+          ARM_TENANT_ID:       ${{ secrets.AZURE_TENANT_ID }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Terraform Destroy
+        if: inputs.action == 'destroy'
+        run: terraform destroy -auto-approve
+        env:
+          ARM_USE_OIDC: true
+          ARM_CLIENT_ID:       ${{ secrets.AZURE_CLIENT_ID }}
+          ARM_TENANT_ID:       ${{ secrets.AZURE_TENANT_ID }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}

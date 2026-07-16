@@ -1,0 +1,2 @@
+# Copy to local.tfvars and fill in — never commit local.tfvars
+flow_log_storage_account_id = "/subscriptions/YOUR_PLATFORM_SUBSCRIPTION_ID/resourceGroups/YOUR_ORG_PREFIX-tfstate-platform/providers/Microsoft.Storage/storageAccounts/cctfstate"

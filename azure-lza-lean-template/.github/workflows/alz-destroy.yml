@@ -1,0 +1,65 @@
+name: ALZ Destroy
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: "Type DESTROY to confirm full teardown"
+        required: true
+
+permissions:
+  id-token: write
+  contents: read
+  actions: read
+
+jobs:
+  confirm:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Confirm destroy
+        run: '[ "${{ inputs.confirm }}" = "DESTROY" ] || (echo "Type DESTROY exactly" && exit 1)'
+
+  shared-05-avnm:
+    needs: confirm
+    uses: ./.github/workflows/layer-05-avnm.yml
+    with:
+      action: destroy
+    secrets: inherit
+
+  dev-05-workload:
+    needs: shared-05-avnm
+    uses: ./.github/workflows/layer-05-workload.yml
+    with:
+      action: destroy
+      env: dev
+    secrets: inherit
+
+  dev-02-policy:
+    needs: dev-05-workload
+    uses: ./.github/workflows/layer-02-policy.yml
+    with:
+      action: destroy
+      env: dev
+    secrets: inherit
+
+  dev-01-mg:
+    needs: dev-02-policy
+    uses: ./.github/workflows/layer-01-mg.yml
+    with:
+      action: destroy
+      env: dev
+    secrets: inherit
+
+  shared-04-hub:
+    needs: dev-01-mg
+    uses: ./.github/workflows/layer-04-hub.yml
+    with:
+      action: destroy
+    secrets: inherit
+
+  shared-03-management:
+    needs: shared-04-hub
+    uses: ./.github/workflows/layer-03-management.yml
+    with:
+      action: destroy
+    secrets: inherit
