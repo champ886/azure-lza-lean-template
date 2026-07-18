@@ -1,4 +1,4 @@
-# Azure LZA Lean
+# Azure LZA Lean — YOUR_ORG_NAME.au
 
 > **Lean philosophy:** Start with what you need today. Graduate to what you need tomorrow. No Azure Firewall at $950/mo on day one — a $8 router VM does the same job while you validate the architecture.
 
@@ -115,7 +115,8 @@ azure-lza-lean/
 │   └── layer-05-workload.yml
 │
 ├── bootstrap.sh                    # One-time setup — run before first deploy
-├── local-test.sh                   # Local plan/apply/destroy helper
+├── local-test.sh                   # Local plan/apply/destroy per layer
+├── deploy-local.sh                 # Automated full deploy/destroy locally
 └── .gitignore
 ```
 
@@ -157,7 +158,7 @@ azure-lza-lean/
 | prod/02-policy | `alz/prod/02-policy/terraform.tfstate` | platform |
 | prod/05-workload | `alz/prod/05-workload/terraform.tfstate` | prod |
 
-**Backend:** Storage account `YOUR_TFSTATE_SA_NAME` in `YOUR_ORG_PREFIX-tfstate-platform`
+**Backend:** Storage account `YOUR_TFSTATE_SA_NAME` in `rg-tfstate-platform`
 
 ---
 
@@ -192,12 +193,28 @@ See [RUNBOOK.md](RUNBOOK.md) for full step-by-step instructions.
 # 1. Bootstrap (once only)
 ./bootstrap.sh
 
-# 2. Deploy via GitHub Actions
+# 2. Update placeholder values in local-test.sh
+#    PLATFORM_SUB, NONPROD_SUB, PROD_SUB, TENANT_ID
+
+# 3a. Deploy locally — automated (recommended)
+./deploy-local.sh apply
+
+# 3b. Deploy via GitHub Actions
 # Actions → ALZ Deploy → Run workflow → plan-and-apply
 
-# 3. Or deploy locally
-azure-lza   # set auth env vars (add to ~/.bashrc)
-./local-test.sh
+# 3c. Deploy locally — layer by layer
+./local-test.sh shared/03-management apply
+./local-test.sh shared/04-hub apply
+./local-test.sh dev/01-management-groups apply
+./local-test.sh dev/02-policy apply
+./local-test.sh dev/05-workload apply
+./local-test.sh shared/05-avnm apply
+
+# 4. Verify
+az group list --query "[?starts_with(name,'rg-')].name" -o tsv
+
+# 5. Destroy when needed
+./deploy-local.sh destroy
 ```
 
 ---

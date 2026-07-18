@@ -53,7 +53,7 @@ cp environments/prod/05-workload/local.auto.tfvars.example \
 # Get storage account resource ID
 az storage account show \
   --name YOUR_TFSTATE_SA_NAME \
-  --resource-group YOUR_ORG_PREFIX-tfstate-platform \
+  --resource-group rg-tfstate-platform \
   --subscription "YOUR_PLATFORM_SUBSCRIPTION_ID" \
   --query id -o tsv
 # Paste output into both workload local.auto.tfvars files
@@ -97,7 +97,7 @@ az login
 ```
 
 Bootstrap creates:
-- tfstate storage account `YOUR_TFSTATE_SA_NAME` in `YOUR_ORG_PREFIX-tfstate-platform`
+- tfstate storage account `YOUR_TFSTATE_SA_NAME` in `rg-tfstate-platform`
 - OIDC App Registration `sp-github-azure-lza-lean`
 - Owner role on all 3 subscriptions
 - Management Group Contributor at tenant root
@@ -134,10 +134,42 @@ shared/05-avnm          AVNM peerings + security admin rules
 
 Prod layers are commented out in `alz-deploy.yml` until prod workload is ready.
 
-### Via local-test.sh
+### Via deploy-local.sh (recommended — automated, stops on failure)
 
 ```bash
-azure-lza   # set auth env vars
+# Deploy all layers in correct order automatically
+./deploy-local.sh apply
+
+# Plan all layers (no changes applied)
+./deploy-local.sh plan
+
+# Destroy all layers in reverse order
+./deploy-local.sh destroy
+```
+
+### Via local-test.sh (individual layers)
+
+```bash
+# Single layer — plan
+./local-test.sh shared/04-hub
+
+# Single layer — apply
+./local-test.sh shared/04-hub apply
+
+# Single layer — plan then apply in one step
+./local-test.sh shared/04-hub plan-and-apply
+
+# Single layer — destroy (prompts for confirmation)
+./local-test.sh dev/05-workload destroy
+
+# All layers in order
+./local-test.sh all apply
+```
+
+### Manual layer by layer (if scripts fail)
+
+```bash
+azure-lza   # set auth env vars (add to ~/.bashrc)
 ./local-test.sh shared/03-management apply
 ./local-test.sh shared/04-hub apply
 ./local-test.sh dev/01-management-groups apply
@@ -167,9 +199,17 @@ Actions → ALZ Destroy → Run workflow → type: DESTROY → Run
 
 Reverse order: AVNM → dev workload → dev policy → dev MGs → hub → management
 
-### Via local
+### Via deploy-local.sh (recommended)
 
 ```bash
+./deploy-local.sh destroy
+# Prompts you to type each layer name to confirm before destroying
+```
+
+### Via local-test.sh (individual layers)
+
+```bash
+# Run in reverse order — AVNM first, management last
 ./local-test.sh shared/05-avnm destroy
 ./local-test.sh dev/05-workload destroy
 ./local-test.sh dev/02-policy destroy
@@ -283,6 +323,83 @@ terraform destroy
 
 ---
 
+## Verifying What Has Been Deployed
+
+### Quick check — resource groups
+
+```bash
+# See all resource groups created across all subscriptions
+az group list   --query "[?starts_with(name, 'rg-')].{Name:name, Location:location}"   -o table
+
+# Check a specific subscription
+az group list   --subscription "YOUR_NONPROD_SUBSCRIPTION_ID"   --query "[].{Name:name, Location:location}"   -o table
+```
+
+### Terraform state per layer
+
+```bash
+# Check what Terraform has in state for every layer
+for LAYER in   shared/03-management   shared/04-hub   dev/01-management-groups   dev/02-policy   dev/05-workload   shared/05-avnm; do
+  echo "=== $LAYER ==="
+  cd environments/$LAYER
+  terraform state list 2>/dev/null || echo "  no state"
+  cd -
+done
+```
+
+### Expected resource groups after full dev deploy
+
+| Resource Group | Subscription | What it contains |
+|---|---|---|
+| `rg-tfstate-platform` | platform | tfstate storage account |
+| `rg-management-YOUR_ORG_PREFIX` | platform | LAW, DNS zones, Defender |
+| `rg-hub-YOUR_ORG_PREFIX` | platform | Hub VNet, NAT GW, router VM, AVNM |
+| `rg-workload-dev-YOUR_ORG_PREFIX` | nonprod | Dev spoke VNet, subnets, Key Vault, PEs |
+| `NetworkWatcherRG` | nonprod | Auto-created by Azure |
+
+---
+
+## Partial Deploy Recovery
+
+If `deploy-local.sh` stops midway — identify what was deployed and destroy cleanly.
+
+### Step 1 — check what exists
+
+```bash
+# Check Terraform state for each layer
+for LAYER in   shared/03-management   shared/04-hub   dev/01-management-groups   dev/02-policy   dev/05-workload   shared/05-avnm; do
+  echo "=== $LAYER ==="
+  cd environments/$LAYER && terraform state list 2>/dev/null | head -3 || echo "  no state"
+  cd -
+done
+```
+
+### Step 2 — destroy from furthest deployed back
+
+```bash
+# Run destroy from the furthest deployed layer back to the first
+# Layers with no state complete instantly — safe to run all
+./deploy-local.sh destroy
+
+# Or manually in reverse if deploy-local.sh also fails:
+./local-test.sh shared/05-avnm destroy
+./local-test.sh dev/05-workload destroy
+./local-test.sh dev/02-policy destroy
+./local-test.sh dev/01-management-groups destroy
+./local-test.sh shared/04-hub destroy
+./local-test.sh shared/03-management destroy
+```
+
+### Step 3 — verify clean
+
+```bash
+# Confirm no resource groups remain (except tfstate)
+az group list   --query "[?starts_with(name, 'rg-') && name != 'rg-tfstate-platform'].name"   -o tsv
+# Should return nothing if fully destroyed
+```
+
+---
+
 ## Troubleshooting
 
 ### State file has no outputs
@@ -374,7 +491,7 @@ When ready to replace the router VM with OPNsense active-active:
 
 | Resource Group | Subscription | Contents |
 |---|---|---|
-| `YOUR_ORG_PREFIX-tfstate-platform` | platform | tfstate storage account |
+| `rg-tfstate-platform` | platform | tfstate storage account |
 | `rg-management-cc` | platform | LAW, AMPLS, 8 DNS zones, Defender |
 | `rg-hub-cc` | platform | Hub VNet, NAT GW, router VM, AVNM, NSGs |
 | `rg-workload-dev-cc` | nonprod | Dev spoke VNet, subnets, NSGs, Key Vault, PEs |
